@@ -163,17 +163,20 @@ app.post('/api/detect-selector', async (req, res) => {
 
 // Test Endpoint (Wizard)
 app.post('/api/test-check', async (req, res) => {
-    const { url, price_selector, stock_selector, availability_strategy } = req.body;
-    // Mock watcher object for the function
-    const mockWatcher = {
-        url,
-        price_selector,
-        stock_selector,
-        availability_strategy,
-        out_of_stock_keywords: req.body.out_of_stock_keywords
-    };
-    const result = await runCheck(mockWatcher);
-    res.json(result);
+    try {
+        const { url, price_selector, stock_selector, availability_strategy } = req.body;
+        const mockWatcher = {
+            url,
+            price_selector,
+            stock_selector,
+            availability_strategy,
+            out_of_stock_keywords: req.body.out_of_stock_keywords
+        };
+        const result = await runCheck(mockWatcher);
+        res.json(result);
+    } catch (e: any) {
+        res.status(500).json({ error: e.message || 'Internal error' });
+    }
 });
 
 // Admin: Run checks manually
@@ -190,7 +193,7 @@ app.get('*', (req, res) => {
 
 function runMigrations(): Promise<void> {
     return new Promise((resolve, reject) => {
-        exec('npx prisma db push', { cwd: path.resolve(__dirname, '../') }, (error) => {
+        exec('node node_modules/.bin/prisma db push', { cwd: path.resolve(__dirname, '../') }, (error) => {
             if (error) reject(error);
             else resolve();
         });
