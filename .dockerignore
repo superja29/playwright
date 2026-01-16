@@ -1,0 +1,10 @@
+client
+node_modules
+**/node_modules
+**/dist
+.env
+*.env
+server/.env
+client/.env
+npm-debug.log
+yarn-error.log
