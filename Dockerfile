@@ -13,6 +13,13 @@ RUN cd server && npx prisma generate
 COPY server/tsconfig.json ./server/
 COPY server/src ./server/src
 
+ # Build client and copy to server/public
+ COPY client/package*.json ./client/
+ RUN cd client && npm ci
+ COPY client ./client
+ RUN cd client && npm run build
+ RUN mkdir -p server/public && cp -r client/dist/* server/public/
+
 RUN cd server && npm run build
 
 ENV NODE_ENV=production

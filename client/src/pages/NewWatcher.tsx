@@ -33,7 +33,7 @@ export default function NewWatcher() {
   const [testResult, setTestResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
   const [detecting, setDetecting] = useState(false);
-  const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+  const API = import.meta.env.VITE_API_URL || window.location.origin;
 
   const handleUrlChange = (e: any) => {
     const url = e.target.value;

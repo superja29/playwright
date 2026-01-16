@@ -3,6 +3,7 @@ import cors from 'cors';
 import { PrismaClient } from '@prisma/client';
 import { startScheduler, runDueChecksOnce } from './scheduler';
 import { runCheck, detectSelector } from './scraper';
+import path from 'path';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -178,6 +179,12 @@ app.post('/api/test-check', async (req, res) => {
 app.post('/api/jobs/run-checks', async (req, res) => {
     await runDueChecksOnce();
     res.json({ message: "Checks executed" });
+});
+
+const staticDir = path.resolve(__dirname, '../public');
+app.use(express.static(staticDir));
+app.get('*', (req, res) => {
+    res.sendFile(path.join(staticDir, 'index.html'));
 });
 
 app.listen(PORT, () => {

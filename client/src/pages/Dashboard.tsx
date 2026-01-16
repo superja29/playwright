@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 
 export default function Dashboard() {
   const [watchers, setWatchers] = useState<any[]>([]);
-  const API = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+  const API = import.meta.env.VITE_API_URL || window.location.origin;
 
   useEffect(() => {
     fetch(`${API}/api/watchers`)
