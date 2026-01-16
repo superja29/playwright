@@ -11,14 +11,17 @@ export type CheckResult = {
 };
 
 export async function detectSelector(url: string): Promise<{ selector: string | null; price: number | null; strategy: string | null }> {
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  const context = await browser.newContext({
-    userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-  });
-  const page = await context.newPage();
+  let browser: any = null;
+  let context: any = null;
+  let page: any = null;
 
   try {
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    });
+    page = await context.newPage();
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch (e) {}
 
     const strategies = [
@@ -70,22 +73,27 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
     console.error('Detection failed:', e);
     return { selector: null, price: null, strategy: null };
   } finally {
-    await browser.close();
+    try { if (page) await page.close(); } catch {}
+    try { if (context) await context.close(); } catch {}
+    try { if (browser) await browser.close(); } catch {}
   }
 }
 
 export async function runCheck(watcher: any): Promise<CheckResult> {
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-  const context = await browser.newContext({
-    userAgent:
-      process.env.PLAYWRIGHT_USER_AGENT ||
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
-  });
-  const page = await context.newPage();
+  let browser: any = null;
+  let context: any = null;
+  let page: any = null;
   const start = Date.now();
 
   try {
-    const response = await page.goto(watcher.url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+    browser = await chromium.launch({ headless: true, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+    context = await browser.newContext({
+      userAgent:
+        process.env.PLAYWRIGHT_USER_AGENT ||
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+    });
+    page = await context.newPage();
+    const response = await page.goto(watcher.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     
     if (response && (response.status() === 403 || response.status() === 503)) {
          return {
@@ -207,6 +215,8 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
           response_time_ms: Date.now() - start
       };
   } finally {
-      await browser.close();
+      try { if (page) await page.close(); } catch {}
+      try { if (context) await context.close(); } catch {}
+      try { if (browser) await browser.close(); } catch {}
   }
 }
