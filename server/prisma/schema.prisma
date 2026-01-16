@@ -1,0 +1,55 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Watcher {
+  id                      String   @id @default(uuid())
+  name                    String
+  url                     String
+  store_domain            String
+  currency                String   @default("CLP")
+  price_selector          String
+  stock_selector          String?
+  availability_strategy   String   @default("PRICE_SELECTOR_ONLY")
+  out_of_stock_keywords   Json?
+  target_price            Int?
+  alert_on_drop           Boolean  @default(true)
+  alert_on_back_in_stock  Boolean  @default(true)
+  check_frequency_minutes Int      @default(60)
+  enabled                 Boolean  @default(true)
+  created_at              DateTime @default(now())
+  updated_at              DateTime @updatedAt
+  checks                  Check[]
+  notifications           Notification[]
+}
+
+model Check {
+  id               String   @id @default(uuid())
+  watcher_id       String
+  watcher          Watcher  @relation(fields: [watcher_id], references: [id], onDelete: Cascade)
+  checked_at       DateTime @default(now())
+  price_value      Int?
+  price_text       String?
+  in_stock         Boolean?
+  status           String
+  error_message    String?
+  raw_excerpt      String?
+  response_time_ms Int?
+  created_at       DateTime @default(now())
+}
+
+model Notification {
+  id         String   @id @default(uuid())
+  watcher_id String
+  watcher    Watcher  @relation(fields: [watcher_id], references: [id], onDelete: Cascade)
+  type       String
+  channel    String
+  sent_at    DateTime @default(now())
+  payload    Json?
+  status     String
+}

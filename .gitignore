@@ -1,0 +1,24 @@
+# Node
+node_modules/
+npm-debug.log*
+yarn-error.log*
+
+# Build output
+dist/
+client/dist/
+server/dist/
+
+# Environment variables
+.env
+*.env
+server/.env
+client/.env
+
+# Playwright artifacts
+playwright-report/
+test-results/
+playwright/.cache/
+
+# IDE/system
+.vscode/
+.DS_Store
