@@ -21,7 +21,7 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
       userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
     });
     page = await context.newPage();
-    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 15000 });
+    await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
     try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch (e) {}
 
     const strategies = [
@@ -30,10 +30,13 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
       { name: 'Electrolux Custom', selector: '.electrolux-product-prices-4-x-sellingPriceValue' },
       { name: 'Electrolux Container', selector: '.electrolux-product-prices-4-x-sellingPrice' },
       { name: 'MercadoLibre', selector: '.ui-pdp-price__second-line .andes-money-amount__fraction' },
+      { name: 'MercadoLibre Fraction', selector: '.andes-money-amount__fraction' },
       { name: 'Ripley', selector: '.product-price' },
       { name: 'Linio', selector: '.price-main-md' },
       { name: 'Schema.org', selector: '[itemprop="price"]' },
       { name: 'OpenGraph', selector: 'meta[property="product:price:amount"]', isMeta: true },
+      { name: 'OpenGraph Price', selector: 'meta[property="og:price:amount"]', isMeta: true },
+      { name: 'Schema.org Meta', selector: 'meta[itemprop="price"]', isMeta: true },
       { name: 'Generic ID', selector: '#price' },
       { name: 'Generic Class', selector: '.price' },
       { name: 'Generic Product Price', selector: '.product-price' }
@@ -68,6 +71,27 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
       }
     }
     
+    try {
+      const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
+      if (ld) {
+        const obj = JSON.parse(ld);
+        const price = extractPriceFromJson(obj);
+        if (price && price > 0) {
+          return { selector: 'ld+json', price, strategy: 'JSON-LD Offers' };
+        }
+      }
+    } catch {}
+    try {
+      const nextData = await page.locator('script#__NEXT_DATA__').first().textContent();
+      if (nextData) {
+        const obj = JSON.parse(nextData);
+        const price = extractPriceFromJson(obj);
+        if (price && price > 0) {
+          return { selector: '__NEXT_DATA__', price, strategy: 'NextData JSON' };
+        }
+      }
+    } catch {}
+
     return { selector: null, price: null, strategy: null };
   } catch (e) {
     console.error('Detection failed:', e);
@@ -141,6 +165,24 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
         await locator.waitFor({ state: 'attached', timeout: 8000 });
         priceText = await locator.innerText();
     } catch (e) {
+        try {
+          const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
+          if (ld) {
+            const obj = JSON.parse(ld);
+            const price = extractPriceFromJson(obj);
+            if (price && price > 0) {
+              return {
+                price_value: price,
+                price_text: `${price}`,
+                in_stock: null,
+                status: 'OK',
+                error_message: null,
+                raw_excerpt: `${price}`,
+                response_time_ms: Date.now() - start
+              };
+            }
+          }
+        } catch {}
         return {
             price_value: null,
             price_text: null,
@@ -219,4 +261,28 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
       try { if (context) await context.close(); } catch {}
       try { if (browser) await browser.close(); } catch {}
   }
+}
+
+function extractPriceFromJson(root: any): number | null {
+  const stack = [root];
+  while (stack.length) {
+    const cur = stack.pop();
+    if (cur && typeof cur === 'object') {
+      if (typeof cur.price === 'number' && cur.price > 0) return cur.price;
+      if (typeof cur.amount === 'number' && cur.amount > 0) return cur.amount;
+      if (typeof cur.value === 'number' && cur.value > 0) return cur.value;
+      if (cur.offers && typeof cur.offers === 'object') {
+        const o = (Array.isArray(cur.offers) ? cur.offers[0] : cur.offers) || {};
+        if (typeof o.price === 'number' && o.price > 0) return o.price;
+        if (typeof o.price === 'string') {
+          const n = parseFloat(o.price.replace(/[^\d.]/g, ''));
+          if (!isNaN(n) && n > 0) return Math.round(n);
+        }
+      }
+      for (const k of Object.keys(cur)) {
+        stack.push(cur[k]);
+      }
+    }
+  }
+  return null;
 }
