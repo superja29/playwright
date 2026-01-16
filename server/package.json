@@ -27,7 +27,7 @@
     "@types/node": "^20.11.16",
     "@types/node-cron": "^3.0.11",
     "nodemon": "^3.0.3",
-    "prisma": "^5.10.0",
+    "prisma": "^5.22.0",
     "ts-node": "^10.9.2",
     "typescript": "^5.3.3"
   }

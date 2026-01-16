@@ -6,7 +6,7 @@ WORKDIR /app
 COPY server/package*.json ./server/
 COPY server/prisma ./server/prisma
 
-RUN cd server && npm ci
+RUN cd server && npm ci --include=dev
 RUN cd server && npx prisma generate
 
 # Copy server source and tsconfig

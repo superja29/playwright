@@ -5,7 +5,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma
 
-RUN npm ci
+RUN npm ci --include=dev
 RUN npx prisma generate
 
 COPY tsconfig.json ./
