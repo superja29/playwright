@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { startScheduler, runDueChecksOnce } from './scheduler';
 import { runCheck, detectSelector } from './scraper';
 import path from 'path';
+import { exec } from 'child_process';
 
 const app = express();
 const prisma = new PrismaClient();
@@ -187,8 +188,20 @@ app.get('*', (req, res) => {
     res.sendFile(path.join(staticDir, 'index.html'));
 });
 
-app.listen(PORT, () => {
+function runMigrations(): Promise<void> {
+    return new Promise((resolve, reject) => {
+        exec('npx prisma db push', { cwd: path.resolve(__dirname, '../') }, (error) => {
+            if (error) reject(error);
+            else resolve();
+        });
+    });
+}
+
+app.listen(PORT, async () => {
     console.log(`Server running on http://localhost:${PORT}`);
-    ensureSeedData();
+    try {
+        await runMigrations();
+        await ensureSeedData();
+    } catch (e) {}
     startScheduler();
 });
