@@ -22,7 +22,13 @@ async function createPage(targetUrl: string) {
   const proxy = getProxy();
   const browser = await chromium.launch({
     headless: true,
-    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+    args: [
+      '--no-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-blink-features=AutomationControlled',
+      '--disable-infobars',
+      '--window-size=1366,768'
+    ],
     proxy
   });
   const context = await browser.newContext({
@@ -34,15 +40,45 @@ async function createPage(targetUrl: string) {
     viewport: { width: 1366, height: 768 },
     ignoreHTTPSErrors: true,
     extraHTTPHeaders: {
-      'Accept-Language': 'es-CL,es;q=0.9',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+      'Accept-Language': 'es-CL,es;q=0.9,en;q=0.8',
+      'Accept-Encoding': 'gzip, deflate, br',
       'Upgrade-Insecure-Requests': '1',
-      'Referer': new URL(targetUrl).origin
+      'Sec-Fetch-Dest': 'document',
+      'Sec-Fetch-Mode': 'navigate',
+      'Sec-Fetch-Site': 'none',
+      'Sec-Fetch-User': '?1',
+      'Cache-Control': 'max-age=0'
     }
   });
   const page = await context.newPage();
+  
+  // Evasión de detección de bots más robusta
   await page.addInitScript(() => {
+    // Ocultar webdriver
     Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+    
+    // Simular plugins
+    Object.defineProperty(navigator, 'plugins', {
+      get: () => [1, 2, 3, 4, 5]
+    });
+    
+    // Simular languages
+    Object.defineProperty(navigator, 'languages', {
+      get: () => ['es-CL', 'es', 'en']
+    });
+    
+    // Ocultar automation
+    delete (window as any).cdc_adoQpoasnfa76pfcZLmcfl_Array;
+    delete (window as any).cdc_adoQpoasnfa76pfcZLmcfl_Promise;
+    delete (window as any).cdc_adoQpoasnfa76pfcZLmcfl_Symbol;
+    
+    // Chrome runtime
+    (window as any).chrome = {
+      runtime: {}
+    };
   });
+  
   return { browser, context, page };
 }
 export async function detectSelector(url: string): Promise<{ selector: string | null; price: number | null; strategy: string | null }> {
@@ -62,15 +98,36 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
       console.log(`[detectSelector] Network idle timeout (non-critical): ${(e as Error).message}`);
     }
 
+    // Verificar si hay redirección a página de verificación (común en MercadoLibre)
+    const currentUrl = page.url();
+    console.log(`[detectSelector] Current URL after navigation: ${currentUrl}`);
+    if (currentUrl.includes('account-verification') || currentUrl.includes('challenge') || currentUrl.includes('captcha')) {
+      console.log(`[detectSelector] Detected redirect to verification page`);
+      return { selector: null, price: null, strategy: null };
+    }
+
     const strategies = [
+      // MercadoLibre - múltiples selectores para diferentes versiones de la página
+      { name: 'MercadoLibre Price Container', selector: '.ui-pdp-price__second-line .andes-money-amount__fraction' },
+      { name: 'MercadoLibre Main Price', selector: '.ui-pdp-price__main-container .andes-money-amount__fraction' },
+      { name: 'MercadoLibre Fraction', selector: '.andes-money-amount__fraction' },
+      { name: 'MercadoLibre Price Value', selector: '[data-testid="price-part"]' },
+      { name: 'MercadoLibre Selling Price', selector: '.ui-pdp-price__second-line span[aria-roledescription="Precio"]' },
+      { name: 'MercadoLibre Price Amount', selector: '.andes-money-amount' },
+      
+      // VTEX
       { name: 'VTEX Standard', selector: '.vtex-product-price-1-x-sellingPriceValue' },
       { name: 'VTEX Container', selector: '.vtex-product-price-1-x-sellingPrice' },
       { name: 'Electrolux Custom', selector: '.electrolux-product-prices-4-x-sellingPriceValue' },
       { name: 'Electrolux Container', selector: '.electrolux-product-prices-4-x-sellingPrice' },
-      { name: 'MercadoLibre', selector: '.ui-pdp-price__second-line .andes-money-amount__fraction' },
-      { name: 'MercadoLibre Fraction', selector: '.andes-money-amount__fraction' },
+      
+      // Otros sitios chilenos
       { name: 'Ripley', selector: '.product-price' },
+      { name: 'Falabella', selector: '.prices-0' },
+      { name: 'Paris', selector: '.product-sigle-price-wrapper' },
       { name: 'Linio', selector: '.price-main-md' },
+      
+      // Genéricos
       { name: 'Schema.org', selector: '[itemprop="price"]' },
       { name: 'OpenGraph', selector: 'meta[property="product:price:amount"]', isMeta: true },
       { name: 'OpenGraph Price', selector: 'meta[property="og:price:amount"]', isMeta: true },
@@ -195,6 +252,22 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
         console.log(`[runCheck] Network idle timeout (non-critical): ${(e as Error).message}`);
     }
 
+    // Verificar si hay redirección a página de verificación (común en MercadoLibre)
+    const currentUrl = page.url();
+    console.log(`[runCheck] Current URL after navigation: ${currentUrl}`);
+    if (currentUrl.includes('account-verification') || currentUrl.includes('challenge') || currentUrl.includes('captcha')) {
+        console.log(`[runCheck] Detected redirect to verification page`);
+        return {
+            price_value: null,
+            price_text: null,
+            in_stock: null,
+            status: 'BLOCKED',
+            error_message: 'Redirected to verification page',
+            raw_excerpt: null,
+            response_time_ms: Date.now() - start
+        };
+    }
+
     const content = await page.content();
     const lowerContent = content.toLowerCase();
 
@@ -204,8 +277,10 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
           lowerContent.includes('security check') ||
           lowerContent.includes('cloudflare') ||
           lowerContent.includes('robot check') ||
-          lowerContent.includes('captcha')
+          lowerContent.includes('captcha') ||
+          lowerContent.includes('account-verification')
         ) {
+            console.log(`[runCheck] Detected blocking page content`);
             return {
                 price_value: null,
                 price_text: null,
