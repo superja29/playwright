@@ -10,12 +10,12 @@ export type CheckResult = {
   response_time_ms: number;
 };
 
-function getProxy() {
+function getProxy(): { server: string; username?: string; password?: string } | undefined {
   const server = process.env.PLAYWRIGHT_PROXY_SERVER;
-  if (!server) return undefined as any;
+  if (!server) return undefined;
   const username = process.env.PLAYWRIGHT_PROXY_USERNAME;
   const password = process.env.PLAYWRIGHT_PROXY_PASSWORD;
-  return { server, username, password } as any;
+  return { server, username, password };
 }
 
 async function createPage(targetUrl: string) {
@@ -51,9 +51,16 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
   let page: any = null;
 
   try {
+    console.log(`[detectSelector] Starting detection for URL: ${url}`);
     ({ browser, context, page } = await createPage(url));
+    console.log(`[detectSelector] Browser created, navigating to URL...`);
     await page.goto(url, { waitUntil: 'domcontentloaded', timeout: 25000 });
-    try { await page.waitForLoadState('networkidle', { timeout: 10000 }); } catch (e) {}
+    console.log(`[detectSelector] Page loaded, waiting for network idle...`);
+    try {
+      await page.waitForLoadState('networkidle', { timeout: 10000 });
+    } catch (e) {
+      console.log(`[detectSelector] Network idle timeout (non-critical): ${(e as Error).message}`);
+    }
 
     const strategies = [
       { name: 'VTEX Standard', selector: '.vtex-product-price-1-x-sellingPriceValue' },
@@ -73,13 +80,15 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
       { name: 'Generic Product Price', selector: '.product-price' }
     ];
 
+    console.log(`[detectSelector] Testing ${strategies.length} strategies...`);
     for (const strat of strategies) {
       try {
-        if (strat.isMeta) {
+        if ((strat as any).isMeta) {
           const content = await page.getAttribute(strat.selector, 'content');
           if (content) {
             const val = parseFloat(content);
             if (!isNaN(val) && val > 0) {
+              console.log(`[detectSelector] Found price with strategy "${strat.name}": ${val}`);
               return { selector: strat.selector, price: val, strategy: strat.name };
             }
           }
@@ -92,40 +101,53 @@ export async function detectSelector(url: string): Promise<{ selector: string | 
               const digits = text.replace(/\D/g, '');
               const val = digits ? parseInt(digits, 10) : null;
               if (val && val > 0) {
-                 return { selector: strat.selector, price: val, strategy: strat.name };
+                console.log(`[detectSelector] Found price with strategy "${strat.name}": ${val}`);
+                return { selector: strat.selector, price: val, strategy: strat.name };
               }
             }
           }
         }
       } catch (e) {
-        // Ignore failures for specific strategies
+        console.log(`[detectSelector] Strategy "${strat.name}" failed: ${(e as Error).message}`);
       }
     }
     
+    // Try JSON-LD structured data
+    console.log(`[detectSelector] Trying JSON-LD structured data...`);
     try {
       const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
       if (ld) {
         const obj = JSON.parse(ld);
         const price = extractPriceFromJson(obj);
         if (price && price > 0) {
+          console.log(`[detectSelector] Found price in JSON-LD: ${price}`);
           return { selector: 'ld+json', price, strategy: 'JSON-LD Offers' };
         }
       }
-    } catch {}
+    } catch (e) {
+      console.log(`[detectSelector] JSON-LD parsing failed: ${(e as Error).message}`);
+    }
+    
+    // Try Next.js data
+    console.log(`[detectSelector] Trying __NEXT_DATA__...`);
     try {
       const nextData = await page.locator('script#__NEXT_DATA__').first().textContent();
       if (nextData) {
         const obj = JSON.parse(nextData);
         const price = extractPriceFromJson(obj);
         if (price && price > 0) {
+          console.log(`[detectSelector] Found price in __NEXT_DATA__: ${price}`);
           return { selector: '__NEXT_DATA__', price, strategy: 'NextData JSON' };
         }
       }
-    } catch {}
+    } catch (e) {
+      console.log(`[detectSelector] __NEXT_DATA__ parsing failed: ${(e as Error).message}`);
+    }
 
+    console.log(`[detectSelector] No price selector found for URL: ${url}`);
     return { selector: null, price: null, strategy: null };
   } catch (e) {
-    console.error('Detection failed:', e);
+    console.error(`[detectSelector] Detection failed for ${url}:`, e);
     return { selector: null, price: null, strategy: null };
   } finally {
     try { if (page) await page.close(); } catch {}
@@ -140,12 +162,22 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
   let page: any = null;
   const start = Date.now();
 
+  console.log(`[runCheck] Starting check for watcher: ${watcher.name || watcher.url}`);
+  console.log(`[runCheck] URL: ${watcher.url}`);
+  console.log(`[runCheck] Price selector: ${watcher.price_selector}`);
+
   try {
+    console.log(`[runCheck] Creating browser page...`);
     ({ browser, context, page } = await createPage(watcher.url));
+    console.log(`[runCheck] Navigating to URL...`);
     const response = await page.goto(watcher.url, { waitUntil: 'domcontentloaded', timeout: 15000 });
     
+    const statusCode = response ? response.status() : 'unknown';
+    console.log(`[runCheck] Page loaded with status: ${statusCode}`);
+    
     if (response && (response.status() === 403 || response.status() === 503)) {
-         return {
+        console.log(`[runCheck] Blocked by HTTP status ${response.status()}`);
+        return {
             price_value: null,
             price_text: null,
             in_stock: null,
@@ -158,7 +190,9 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
 
     try {
         await page.waitForLoadState('networkidle', { timeout: 10000 });
+        console.log(`[runCheck] Network idle reached`);
     } catch (e) {
+        console.log(`[runCheck] Network idle timeout (non-critical): ${(e as Error).message}`);
     }
 
     const content = await page.content();
@@ -184,18 +218,23 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
         }
     }
 
+    console.log(`[runCheck] Looking for price selector: ${watcher.price_selector}`);
     let priceText = '';
     try {
         const locator = page.locator(watcher.price_selector).first();
         await locator.waitFor({ state: 'attached', timeout: 8000 });
         priceText = await locator.innerText();
+        console.log(`[runCheck] Found price text: "${priceText}"`);
     } catch (e) {
+        console.log(`[runCheck] Price selector not found: ${(e as Error).message}`);
+        console.log(`[runCheck] Trying JSON-LD fallback...`);
         try {
           const ld = await page.locator('script[type="application/ld+json"]').first().textContent();
           if (ld) {
             const obj = JSON.parse(ld);
             const price = extractPriceFromJson(obj);
             if (price && price > 0) {
+              console.log(`[runCheck] Found price in JSON-LD fallback: ${price}`);
               return {
                 price_value: price,
                 price_text: `${price}`,
@@ -207,7 +246,10 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
               };
             }
           }
-        } catch {}
+        } catch (jsonError) {
+          console.log(`[runCheck] JSON-LD fallback failed: ${(jsonError as Error).message}`);
+        }
+        console.log(`[runCheck] All price extraction methods failed`);
         return {
             price_value: null,
             price_text: null,
@@ -256,11 +298,13 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
                 }
             }
         } catch (e) {
-            // If selector not found, might imply stock presence or absence depending on site. 
+            console.log(`[runCheck] Stock selector not found: ${(e as Error).message}`);
+            // If selector not found, might imply stock presence or absence depending on site.
             // For MVP, we'll assume inStock if we can't prove otherwise via selector.
         }
     }
 
+    console.log(`[runCheck] Check completed successfully - Price: ${priceValue}, In Stock: ${inStock}`);
     return {
         price_value: priceValue,
         price_text: priceText,
@@ -272,6 +316,7 @@ export async function runCheck(watcher: any): Promise<CheckResult> {
     };
 
   } catch (error: any) {
+      console.error(`[runCheck] Check failed with error:`, error);
       return {
           price_value: null,
           price_text: null,

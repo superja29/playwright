@@ -99,14 +99,17 @@ async function sendNotification(watcher: any, type: string, message: string) {
 }
 
 export async function runDueChecksOnce() {
+  console.log(`[Scheduler] Running due checks...`);
   const watchers = await prisma.watcher.findMany({ where: { enabled: true } });
   const now = Date.now();
+  console.log(`[Scheduler] Found ${watchers.length} enabled watchers`);
 
   for (const watcher of watchers) {
     const domain = watcher.store_domain;
     const blockedUntil = domainBlockedUntil[domain] || 0;
 
     if (now < blockedUntil) {
+      console.log(`[Scheduler] Skipping ${watcher.name}: domain ${domain} is blocked until ${new Date(blockedUntil).toISOString()}`);
       continue;
     }
 
@@ -120,18 +123,29 @@ export async function runDueChecksOnce() {
       : now;
 
     if (now < nextRunTime) {
+      console.log(`[Scheduler] Skipping ${watcher.name}: next run at ${new Date(nextRunTime).toISOString()}`);
       continue;
     }
 
     const lastDomainRun = domainLastRun[domain] || 0;
 
     if (now - lastDomainRun < domainMinIntervalMs) {
+      console.log(`[Scheduler] Skipping ${watcher.name}: domain rate limit (last run ${now - lastDomainRun}ms ago)`);
       continue;
     }
 
     domainLastRun[domain] = now;
-    checkWatcher(watcher);
+    console.log(`[Scheduler] Executing check for ${watcher.name}...`);
+    
+    // CRITICAL FIX: Added await to properly handle async execution and catch errors
+    try {
+      await checkWatcher(watcher);
+    } catch (error) {
+      console.error(`[Scheduler] Error checking watcher ${watcher.name}:`, error);
+    }
   }
+  
+  console.log(`[Scheduler] Due checks completed`);
 }
 
 export function startScheduler() {
